@@ -2,14 +2,23 @@
 # Student Screen Time, Addiction & Health Effects - Comprehensive Analysis
 # ============================================================================
 
+# Set working directory
+setwd("~/Desktop/Code/AI/Data Mining")
+
+# Verify file exists
+if(!file.exists("screen_time_data.xlsx")) {
+  stop("Error: screen_time_data.xlsx not found in ~/Desktop/Code/AI/Data Mining")
+}
+
 # Install and load required packages
 required_packages <- c("readxl", "tidyverse", "ggplot2", "plotly", "corrplot", 
                        "caret", "randomForest", "e1071", "rpart", "rpart.plot",
                        "gridExtra", "reshape2", "scales", "viridis", "GGally")
 
 for(pkg in required_packages) {
-  if(!require(pkg, character.only = TRUE)) {
-    install.packages(pkg, dependencies = TRUE)
+  if(!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    cat(paste("Installing", pkg, "...\n"))
+    install.packages(pkg, dependencies = TRUE, quiet = TRUE)
     library(pkg, character.only = TRUE)
   }
 }
@@ -18,51 +27,59 @@ for(pkg in required_packages) {
 # 1. DATA LOADING AND PREPROCESSING
 # ============================================================================
 
-# Load data (adjust file path as needed)
+# Load data
+cat("Loading data...\n")
 data <- read_excel("screen_time_data.xlsx")
 
 # Display structure
+cat("\nData Structure:\n")
 str(data)
-summary(data)
 
 # Clean column names for easier reference
 colnames(data) <- c(
   "Name", "Age", "Gender", "Year_of_Study", "Daily_Hours", "Usage_Time",
-  "Primary_App", "Gaming_Type", "Social_Media_Hours", "YouTube_Hours",
-  "Messaging_Hours", "Music_Hours", "Gaming_Hours", "Affects_Studies",
-  "Affects_Sleep", "Want_Reduce", "Q1_Anxious", "Q2_Check_Morning",
-  "Q3_Use_While_Working", "Q4_Difficult_Limit", "Q5_Hard_Focus",
-  "Q6_Attention_Reduced", "Q7_Endless_Scroll", "Q8_Mentally_Drained",
-  "Q9_Eye_Strain", "Q10_Neck_Pain", "Q11_Reduced_Physical",
-  "Q12_Use_Before_Sleep", "Q13_Sleep_Later", "Q14_Sleep_Quality",
-  "Q15_Distracted_Study", "Q16_Use_During_Class", "Q17_Missed_Deadlines",
-  "Open_Response_1", "Open_Response_2"
+  "Primary_App", "Gaming_Type", "Affects_Studies", "Affects_Sleep", 
+  "Want_Reduce", "Q1_Anxious", "Q2_Check_Morning", "Q3_Use_While_Working", 
+  "Q4_Difficult_Limit", "Q5_Hard_Focus", "Q6_Attention_Reduced", 
+  "Q7_Endless_Scroll", "Q8_Eye_Strain", "Q9_Neck_Pain", 
+  "Q10_Reduced_Physical", "Q11_Use_Before_Sleep", "Q12_Sleep_Later", 
+  "Q13_Often_Distracted", "Open_Response_1", "Open_Response_2", 
+  "Open_Response_3"
 )
+
+cat("\nData Summary:\n")
+summary(data)
 
 # ============================================================================
 # 2. FEATURE ENGINEERING
 # ============================================================================
 
-# Create composite scores
+cat("\nCreating composite scores...\n")
+
+# Create composite scores - Step 1: Individual scores
 data <- data %>%
   mutate(
     # Addiction Score (Q1-Q4): Mean of addiction-related questions
-    Addiction_Score = rowMeans(select(., Q1_Anxious:Q4_Difficult_Limit), na.rm = TRUE),
+    Addiction_Score = rowMeans(cbind(Q1_Anxious, Q2_Check_Morning, Q3_Use_While_Working, Q4_Difficult_Limit), na.rm = TRUE),
     
-    # Brain Rot Score (Q5-Q8): Cognitive effects
-    Brain_Rot_Score = rowMeans(select(., Q5_Hard_Focus:Q8_Mentally_Drained), na.rm = TRUE),
+    # Brain Rot Score (Q5-Q7): Cognitive effects
+    Brain_Rot_Score = rowMeans(cbind(Q5_Hard_Focus, Q6_Attention_Reduced, Q7_Endless_Scroll), na.rm = TRUE),
     
-    # Physical Health Score (Q9-Q11)
-    Physical_Health_Score = rowMeans(select(., Q9_Eye_Strain:Q11_Reduced_Physical), na.rm = TRUE),
+    # Physical Health Score (Q8-Q10)
+    Physical_Health_Score = rowMeans(cbind(Q8_Eye_Strain, Q9_Neck_Pain, Q10_Reduced_Physical), na.rm = TRUE),
     
-    # Sleep Impact Score (Q12-Q14)
-    Sleep_Impact_Score = rowMeans(select(., Q12_Use_Before_Sleep:Q14_Sleep_Quality), na.rm = TRUE),
+    # Sleep Impact Score (Q11-Q12)
+    Sleep_Impact_Score = rowMeans(cbind(Q11_Use_Before_Sleep, Q12_Sleep_Later), na.rm = TRUE),
     
-    # Productivity Score (Q15-Q17)
-    Productivity_Score = rowMeans(select(., Q15_Distracted_Study:Q17_Missed_Deadlines), na.rm = TRUE),
-    
+    # Productivity Score (Q13)
+    Productivity_Score = Q13_Often_Distracted
+  )
+
+# Step 2: Calculate overall impact score
+data <- data %>%
+  mutate(
     # Overall Impact Score
-    Overall_Impact_Score = rowMeans(select(., Addiction_Score:Productivity_Score), na.rm = TRUE),
+    Overall_Impact_Score = rowMeans(cbind(Addiction_Score, Brain_Rot_Score, Physical_Health_Score, Sleep_Impact_Score, Productivity_Score), na.rm = TRUE),
     
     # Convert Daily_Hours to numeric category
     Daily_Hours_Numeric = case_when(
@@ -87,6 +104,8 @@ data <- data %>%
 # 3. EXPLORATORY DATA ANALYSIS - VISUALIZATIONS
 # ============================================================================
 
+cat("\nGenerating visualizations...\n")
+
 # Set theme
 theme_set(theme_minimal() + 
             theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
@@ -102,13 +121,19 @@ p1 <- ggplot(data, aes(x = Age)) +
 # --- Chart 2: Gender Distribution ---
 p2 <- ggplot(data, aes(x = Gender, fill = Gender)) +
   geom_bar(alpha = 0.8) +
-  scale_fill_manual(values = c("#e74c3c", "#3498db", "#95a5a6")) +
+  scale_fill_manual(values = c("F" = "#e74c3c", "M" = "#3498db")) +
   labs(title = "Gender Distribution",
        x = "Gender", y = "Count") +
   theme_minimal()
 
 # --- Chart 3: Daily Screen Time Distribution ---
-p3 <- ggplot(data, aes(x = Daily_Hours, fill = Daily_Hours)) +
+data_plot3 <- data %>%
+  mutate(Daily_Hours = factor(Daily_Hours, 
+                               levels = c("Less than 2 hours", "2-4 hours", 
+                                        "4-6 hours", "6-8 hours", 
+                                        "More than 8 hours")))
+
+p3 <- ggplot(data_plot3, aes(x = Daily_Hours, fill = Daily_Hours)) +
   geom_bar(alpha = 0.8) +
   coord_flip() +
   scale_fill_viridis_d() +
@@ -132,7 +157,7 @@ p5 <- ggplot(data, aes(x = Usage_Time, fill = Usage_Time)) +
   labs(title = "When Do Students Use Phones Most?",
        x = "Time of Day", y = "Count") +
   theme_minimal() +
-  theme(legend.position = "none")
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
 
 # --- Chart 6: Composite Scores Distribution ---
 scores_data <- data %>%
@@ -199,6 +224,7 @@ p10 <- ggplot(data, aes(x = Year_of_Study, y = Sleep_Impact_Score, fill = Year_o
 
 # --- Chart 11: Study Impact Analysis ---
 study_impact <- data %>%
+  filter(!is.na(Affects_Studies) & !is.na(Daily_Hours)) %>%
   count(Affects_Studies, Daily_Hours) %>%
   group_by(Daily_Hours) %>%
   mutate(percentage = n / sum(n) * 100)
@@ -224,6 +250,7 @@ p12 <- ggplot(data, aes(x = Want_Reduce, fill = Risk_Category)) +
   theme_minimal()
 
 # Display all plots
+cat("\nDisplaying plots...\n")
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 grid.arrange(p5, p6, p7, p8, ncol = 2)
 grid.arrange(p9, p10, p11, p12, ncol = 2)
@@ -231,6 +258,8 @@ grid.arrange(p9, p10, p11, p12, ncol = 2)
 # ============================================================================
 # 4. DATA MINING - CLASSIFICATION ALGORITHMS
 # ============================================================================
+
+cat("\nRunning classification algorithms...\n")
 
 # Prepare data for classification
 classification_data <- data %>%
@@ -243,86 +272,96 @@ classification_data <- data %>%
     Risk_Category = as.factor(Risk_Category)
   )
 
-# Split data into training and testing sets (70-30 split)
-set.seed(123)
-trainIndex <- createDataPartition(classification_data$Risk_Category, p = 0.7, list = FALSE)
-train_data <- classification_data[trainIndex, ]
-test_data <- classification_data[-trainIndex, ]
-
-# --- Algorithm 1: Decision Tree ---
-dt_model <- rpart(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
-                    Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
-                    Sleep_Impact_Score + Productivity_Score,
-                  data = train_data,
-                  method = "class")
-
-# Plot decision tree
-rpart.plot(dt_model, main = "Decision Tree for Risk Classification",
-           extra = 104, box.palette = "RdYlGn")
-
-# Predictions
-dt_predictions <- predict(dt_model, test_data, type = "class")
-dt_confusion <- confusionMatrix(dt_predictions, test_data$Risk_Category)
-print("Decision Tree Results:")
-print(dt_confusion)
-
-# --- Algorithm 2: Random Forest ---
-rf_model <- randomForest(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
-                           Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
-                           Sleep_Impact_Score + Productivity_Score,
-                         data = train_data,
-                         ntree = 500,
-                         importance = TRUE)
-
-# Variable importance plot
-varImpPlot(rf_model, main = "Variable Importance - Random Forest")
-
-# Predictions
-rf_predictions <- predict(rf_model, test_data)
-rf_confusion <- confusionMatrix(rf_predictions, test_data$Risk_Category)
-print("Random Forest Results:")
-print(rf_confusion)
-
-# --- Algorithm 3: Support Vector Machine (SVM) ---
-svm_model <- svm(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
-                   Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
-                   Sleep_Impact_Score + Productivity_Score,
-                 data = train_data,
-                 kernel = "radial")
-
-# Predictions
-svm_predictions <- predict(svm_model, test_data)
-svm_confusion <- confusionMatrix(svm_predictions, test_data$Risk_Category)
-print("SVM Results:")
-print(svm_confusion)
-
-# --- Comparison of Models ---
-model_comparison <- data.frame(
-  Model = c("Decision Tree", "Random Forest", "SVM"),
-  Accuracy = c(dt_confusion$overall['Accuracy'],
-               rf_confusion$overall['Accuracy'],
-               svm_confusion$overall['Accuracy']),
-  Kappa = c(dt_confusion$overall['Kappa'],
-            rf_confusion$overall['Kappa'],
-            svm_confusion$overall['Kappa'])
-)
-
-print("Model Comparison:")
-print(model_comparison)
-
-# Plot model comparison
-ggplot(model_comparison, aes(x = Model, y = Accuracy, fill = Model)) +
-  geom_bar(stat = "identity", alpha = 0.8) +
-  geom_text(aes(label = round(Accuracy, 3)), vjust = -0.5) +
-  scale_fill_viridis_d() +
-  labs(title = "Model Performance Comparison",
-       y = "Accuracy") +
-  theme_minimal() +
-  ylim(0, 1)
+# Check if we have enough data
+if(nrow(classification_data) < 10) {
+  cat("\nWarning: Not enough data for classification. Skipping ML models.\n")
+} else {
+  # Split data into training and testing sets (70-30 split)
+  set.seed(123)
+  trainIndex <- createDataPartition(classification_data$Risk_Category, p = 0.7, list = FALSE)
+  train_data <- classification_data[trainIndex, ]
+  test_data <- classification_data[-trainIndex, ]
+  
+  # --- Algorithm 1: Decision Tree ---
+  cat("\n1. Building Decision Tree...\n")
+  dt_model <- rpart(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
+                      Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
+                      Sleep_Impact_Score + Productivity_Score,
+                    data = train_data,
+                    method = "class")
+  
+  # Plot decision tree
+  rpart.plot(dt_model, main = "Decision Tree for Risk Classification",
+             extra = 104, box.palette = "RdYlGn")
+  
+  # Predictions
+  dt_predictions <- predict(dt_model, test_data, type = "class")
+  dt_confusion <- confusionMatrix(dt_predictions, test_data$Risk_Category)
+  print("Decision Tree Results:")
+  print(dt_confusion)
+  
+  # --- Algorithm 2: Random Forest ---
+  cat("\n2. Building Random Forest...\n")
+  rf_model <- randomForest(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
+                             Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
+                             Sleep_Impact_Score + Productivity_Score,
+                           data = train_data,
+                           ntree = 500,
+                           importance = TRUE)
+  
+  # Variable importance plot
+  varImpPlot(rf_model, main = "Variable Importance - Random Forest")
+  
+  # Predictions
+  rf_predictions <- predict(rf_model, test_data)
+  rf_confusion <- confusionMatrix(rf_predictions, test_data$Risk_Category)
+  print("Random Forest Results:")
+  print(rf_confusion)
+  
+  # --- Algorithm 3: Support Vector Machine (SVM) ---
+  cat("\n3. Building SVM...\n")
+  svm_model <- svm(Risk_Category ~ Age + Gender + Daily_Hours_Numeric + 
+                     Addiction_Score + Brain_Rot_Score + Physical_Health_Score +
+                     Sleep_Impact_Score + Productivity_Score,
+                   data = train_data,
+                   kernel = "radial")
+  
+  # Predictions
+  svm_predictions <- predict(svm_model, test_data)
+  svm_confusion <- confusionMatrix(svm_predictions, test_data$Risk_Category)
+  print("SVM Results:")
+  print(svm_confusion)
+  
+  # --- Comparison of Models ---
+  model_comparison <- data.frame(
+    Model = c("Decision Tree", "Random Forest", "SVM"),
+    Accuracy = c(dt_confusion$overall['Accuracy'],
+                 rf_confusion$overall['Accuracy'],
+                 svm_confusion$overall['Accuracy']),
+    Kappa = c(dt_confusion$overall['Kappa'],
+              rf_confusion$overall['Kappa'],
+              svm_confusion$overall['Kappa'])
+  )
+  
+  cat("\nModel Comparison:\n")
+  print(model_comparison)
+  
+  # Plot model comparison
+  ggplot(model_comparison, aes(x = Model, y = Accuracy, fill = Model)) +
+    geom_bar(stat = "identity", alpha = 0.8) +
+    geom_text(aes(label = round(Accuracy, 3)), vjust = -0.5) +
+    scale_fill_viridis_d() +
+    labs(title = "Model Performance Comparison",
+         y = "Accuracy") +
+    theme_minimal() +
+    ylim(0, 1)
+}
 
 # ============================================================================
 # 5. CLUSTERING ANALYSIS (K-MEANS)
 # ============================================================================
+
+cat("\nPerforming K-Means clustering...\n")
 
 # Prepare data for clustering
 cluster_data <- data %>%
@@ -343,11 +382,16 @@ plot(1:10, wss, type = "b", pch = 19, frame = FALSE,
 set.seed(123)
 kmeans_result <- kmeans(cluster_data, centers = 3, nstart = 25)
 
-# Add cluster assignments to original data
-data$Cluster <- as.factor(kmeans_result$cluster)
+# Add cluster assignments to original data (for rows with complete data)
+data_complete <- data %>%
+  filter(!is.na(Addiction_Score) & !is.na(Brain_Rot_Score) & 
+         !is.na(Physical_Health_Score) & !is.na(Sleep_Impact_Score) & 
+         !is.na(Productivity_Score) & !is.na(Daily_Hours_Numeric))
+
+data_complete$Cluster <- as.factor(kmeans_result$cluster)
 
 # Visualize clusters
-ggplot(data, aes(x = Daily_Hours_Numeric, y = Overall_Impact_Score, color = Cluster)) +
+ggplot(data_complete, aes(x = Daily_Hours_Numeric, y = Overall_Impact_Score, color = Cluster)) +
   geom_point(size = 3, alpha = 0.7) +
   scale_color_viridis_d() +
   labs(title = "K-Means Clustering: Screen Time vs Overall Impact",
@@ -358,19 +402,22 @@ ggplot(data, aes(x = Daily_Hours_Numeric, y = Overall_Impact_Score, color = Clus
 # 6. STATISTICAL TESTS
 # ============================================================================
 
+cat("\nPerforming statistical tests...\n")
+
 # ANOVA: Does screen time significantly affect different impact scores?
 anova_addiction <- aov(Addiction_Score ~ Daily_Hours, data = data)
-print("ANOVA: Daily Hours vs Addiction Score")
+cat("\nANOVA: Daily Hours vs Addiction Score\n")
 print(summary(anova_addiction))
 
 # Chi-square test: Gender vs Risk Category
 chi_test <- chisq.test(table(data$Gender, data$Risk_Category))
-print("Chi-Square Test: Gender vs Risk Category")
+cat("\nChi-Square Test: Gender vs Risk Category\n")
 print(chi_test)
 
 # Correlation test
-cor_test <- cor.test(data$Daily_Hours_Numeric, data$Overall_Impact_Score)
-print("Correlation Test: Daily Hours vs Overall Impact")
+cor_test <- cor.test(data$Daily_Hours_Numeric, data$Overall_Impact_Score, 
+                     use = "complete.obs")
+cat("\nCorrelation Test: Daily Hours vs Overall Impact\n")
 print(cor_test)
 
 # ============================================================================
@@ -380,6 +427,7 @@ print(cor_test)
 # Overall summary
 summary_stats <- data %>%
   summarise(
+    Total_Respondents = n(),
     Mean_Age = mean(Age, na.rm = TRUE),
     Mean_Daily_Hours = mean(Daily_Hours_Numeric, na.rm = TRUE),
     Mean_Addiction_Score = mean(Addiction_Score, na.rm = TRUE),
@@ -387,21 +435,31 @@ summary_stats <- data %>%
     Mean_Physical_Health_Score = mean(Physical_Health_Score, na.rm = TRUE),
     Mean_Sleep_Impact_Score = mean(Sleep_Impact_Score, na.rm = TRUE),
     Mean_Productivity_Score = mean(Productivity_Score, na.rm = TRUE),
-    Pct_High_Risk = sum(Risk_Category == "High Risk", na.rm = TRUE) / n() * 100
+    Pct_High_Risk = sum(Risk_Category == "High Risk", na.rm = TRUE) / n() * 100,
+    Pct_Want_Reduce = sum(Want_Reduce %in% c("Yes", "Maybe"), na.rm = TRUE) / n() * 100
   )
 
-print("Summary Statistics:")
+cat("\n========================================\n")
+cat("SUMMARY STATISTICS:\n")
+cat("========================================\n")
 print(summary_stats)
 
 # ============================================================================
 # 8. EXPORT RESULTS
 # ============================================================================
 
+cat("\nExporting results...\n")
+
 # Save processed data
 write.csv(data, "processed_screen_time_data.csv", row.names = FALSE)
 
-# Save model comparison
-write.csv(model_comparison, "model_comparison_results.csv", row.names = FALSE)
+# Save model comparison if it exists
+if(exists("model_comparison")) {
+  write.csv(model_comparison, "model_comparison_results.csv", row.names = FALSE)
+}
+
+# Save summary statistics
+write.csv(summary_stats, "summary_statistics.csv", row.names = FALSE)
 
 # Save all plots
 pdf("screen_time_analysis_plots.pdf", width = 12, height = 8)
@@ -410,8 +468,14 @@ grid.arrange(p5, p6, p7, p8, ncol = 2)
 grid.arrange(p9, p10, p11, p12, ncol = 2)
 dev.off()
 
-print("Analysis complete! All results have been saved.")
-print("Check your working directory for:")
-print("- processed_screen_time_data.csv")
-print("- model_comparison_results.csv")
-print("- screen_time_analysis_plots.pdf")
+cat("\n========================================\n")
+cat("ANALYSIS COMPLETE!\n")
+cat("========================================\n")
+cat("All results have been saved to:\n")
+cat("- processed_screen_time_data.csv\n")
+cat("- summary_statistics.csv\n")
+if(exists("model_comparison")) {
+  cat("- model_comparison_results.csv\n")
+}
+cat("- screen_time_analysis_plots.pdf\n")
+cat("========================================\n")
